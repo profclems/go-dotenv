@@ -11,6 +11,7 @@ import (
 var (
 	DefaultConfigFile = ".env"
 	DefaultSeparator  = "="
+	defaultPrefix     string
 	// multiple config files cache: <file: <key: value>>
 	cachedConfig map[string]map[string]string
 )
@@ -59,10 +60,18 @@ func (e *DotEnv) GetPrefix() string {
 	return strings.TrimSuffix(e.prefix, "_")
 }
 
-func (e *DotEnv) addPrefix(key string) string {
-	if e.prefix != "" {
-		if !strings.HasPrefix(e.prefix, key) {
-			key = e.prefix + key
+func SetPrefix(prefix string) {
+	defaultPrefix = prefix + "_"
+}
+
+func GetPrefix() string {
+	return strings.TrimSuffix(defaultPrefix, "_")
+}
+
+func addPrefix(prefix, key string) string {
+	if prefix != "" {
+		if !strings.HasPrefix(prefix, key) {
+			key = prefix + key
 		}
 	}
 	return key
@@ -79,32 +88,75 @@ func (e *DotEnv) OverrideConfigFile(configFile string) {
 // before searching from the config file
 func (e *DotEnv) Get(key string) string {
 	if key != "" {
-		key = e.addPrefix(key)
+		key = addPrefix(e.prefix, key)
 
 		if e.Config != nil {
 			return e.Config[key]
 		}
 
-		// first get os env var
-		env := os.Getenv(key)
-
-		if env == "" {
-			// Find config variable in config file
-			env, _, _ = GetFromFile(e.ConfigFile, key)
-		}
+		env, _, _ := getConfigValueWithKey(e.ConfigFile, key)
 		return env
 	}
 
 	return ""
 }
 
-// Set writes or update env variable to config file
+// LookUp retrieves the value of the configuration named by the key.
+// If the variable is present in the configuration file the value (which may be empty) is returned and the boolean is true.
+// Otherwise the returned value will be empty and the boolean will be false.
+func (e *DotEnv) LookUp(key string) (string, bool) {
+	env, isSet, _ := GetFromFile(e.ConfigFile, key)
+	return env, isSet
+}
+
+// Get returns env variable value. It first looks for the key from the OS env var
+// before searching from the config file
+func Get(key string) string {
+	if key != "" {
+		key = addPrefix(defaultPrefix, key)
+
+		env, _, _ := getConfigValueWithKey(DefaultConfigFile, key)
+		return env
+	}
+
+	return ""
+}
+
+// LookUp retrieves the value of the configuration named by the key.
+// If the variable is present in the configuration file the value (which may be empty) is returned and the boolean is true.
+// Otherwise the returned value will be empty and the boolean will be false.
+func LookUp(key string) (string, bool) {
+	env, isSet, _ := GetFromFile(DefaultConfigFile, key)
+	return env, isSet
+}
+
+func getConfigValueWithKey(configFile, key string) (env string, exists bool, err error) {
+	// first get os env var
+	env = os.Getenv(key)
+
+	if env == "" {
+		// Find config variable in config file
+		env, exists, err = GetFromFile(configFile, key)
+	}
+	return
+}
+
+// Set writes or update env variable to config file atomically
 func (e *DotEnv) Set(key, value string) error {
-	defer InvalidateEnvCacheForFile(e.ConfigFile)
+	key = addPrefix(e.prefix, key)
+	return writeToConfig(key, e.Separator, key, value)
+}
 
-	key = e.addPrefix(key)
+// Set writes or update env variable to config file atomically
+func Set(key, value string) error {
+	key = addPrefix(defaultPrefix, key)
+	return writeToConfig(key, DefaultSeparator, key, value)
+}
 
-	data, err := ioutil.ReadFile(e.ConfigFile)
+func writeToConfig(configFile, separator, key string, value string) error {
+	defer InvalidateEnvCacheForFile(configFile)
+
+	data, err := ioutil.ReadFile(configFile)
 	if err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("failed to read/update env config: %q", err)
 	}
@@ -113,13 +165,13 @@ func (e *DotEnv) Set(key, value string) error {
 	temp := strings.Split(file, "\n")
 	newData := ""
 	keyExists := false
-	newConfig := key + e.Separator + (value) + "\n"
+	newConfig := key + separator + (value) + "\n"
 	for _, item := range temp {
 		if item == "" {
 			continue
 		}
 
-		env := strings.SplitN(item, e.Separator, 2)
+		env := strings.SplitN(item, separator, 2)
 		if env[0] == key {
 			newData += newConfig
 			keyExists = true
@@ -130,8 +182,8 @@ func (e *DotEnv) Set(key, value string) error {
 	if !keyExists {
 		newData += newConfig
 	}
-	_ = os.MkdirAll(filepath.Join(e.ConfigFile, ".."), 0755)
-	if err = WriteFile(e.ConfigFile, []byte(newData), 0666); err != nil {
+	_ = os.MkdirAll(filepath.Join(configFile, ".."), 0755)
+	if err = WriteFile(configFile, []byte(newData), 0666); err != nil {
 		return fmt.Errorf("failed to update config file: %q", err)
 	}
 
@@ -145,6 +197,10 @@ func CheckFileExists(filename string) bool {
 		return false
 	}
 	return !info.IsDir()
+}
+
+func SetConfigFile(cfg string) {
+	DefaultConfigFile = cfg
 }
 
 // InvalidateEnvCacheForFile invalidates the cached content of a file used by eg. GetKeyValueInFile
