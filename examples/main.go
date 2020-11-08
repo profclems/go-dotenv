@@ -33,7 +33,6 @@ func main() {
 
 	fmt.Printf("%s = %s \n", "STRONGEST_AVENGER", value)
 
-
 	// Alternatively, you can use any of the Get___ methods for a specific value type
 	value = dotenv.GetString("STRONGEST_AVENGER")
 
