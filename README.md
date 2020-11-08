@@ -33,7 +33,6 @@ package main
 
 import (
     "log"
-    "os"
     
     "github.com/profclems/go-dotenv"
 )
@@ -66,6 +65,7 @@ The following functions and methods exist to get a value depending the Type:
 - `GetStringSlice(key string) : []string`
 - `GetTime(key string) : time.Time`
 - `GetDuration(key string) : time.Duration`
+- `isSet(key string) : bool`
 
 ## Contributing
 Contributions are most welcome! It could be a new feature, bug fix, refactoring or even reporting an issue.
