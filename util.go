@@ -59,7 +59,7 @@ func writeToConfig(configFile, separator, key string, value string) error {
 	}
 	_ = os.MkdirAll(filepath.Join(configFile, ".."), 0755)
 	if err = WriteFile(configFile, []byte(newData), 0666); err != nil {
-		return fmt.Errorf("failed to update config file: %q", err)
+		return fmt.Errorf("failed to write to config file: %q", err)
 	}
 
 	return nil

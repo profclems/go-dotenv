@@ -283,6 +283,15 @@ func (e *DotEnv) GetSizeInBytes(key string) uint {
 	return parseSizeInBytes(sizeStr)
 }
 
+// IsSet checks to see if the key has been set in any of the env var, config cache or config file.
+// IsSet is case-insensitive for a key.
+func IsSet(key string) bool { return d.IsSet(key) }
+
+func (e *DotEnv) IsSet(key string) bool {
+	val := e.Get(key)
+	return val != nil
+}
+
 // LookUp retrieves the value of the configuration named by the key.
 // If the variable is present in the configuration file the value (which may be empty) is returned and the boolean is true.
 // Otherwise the returned value will be empty and the boolean will be false.
