@@ -20,7 +20,7 @@ go get -u github.com/joho/godotenv
 ## Usage
 
 Assuming you have a .env file in the current directory with the following values
-```sh
+```env
 S3_BUCKET=yours3bucket
 SECRET_KEY=yoursecretKey
 PRIORITY_LEVEL=2
@@ -28,7 +28,7 @@ PRIORITY_LEVEL=2
 
 ### Reading .env files
 
-```
+```go
 package main
 
 import (
@@ -55,17 +55,17 @@ func main() {
 ### Getting Values From DotEnv
 The following functions and methods exist to get a value depending the Type:
 
-- Get(key string) : interface{}
-- GetBool(key string) : bool
-- GetFloat64(key string) : float64
-- GetInt(key string) : int
-- GetIntSlice(key string) : []int
-- GetString(key string) : string
-- GetStringMap(key string) : map[string]interface{}
-- GetStringMapString(key string) : map[string]string
-- GetStringSlice(key string) : []string
-- GetTime(key string) : time.Time
-- GetDuration(key string) : time.Duration
+- `Get(key string) : interface{}`
+- `GetBool(key string) : bool`
+- `GetFloat64(key string) : float64`
+- `GetInt(key string) : int`
+- `GetIntSlice(key string) : []int`
+- `GetString(key string) : string`
+- `GetStringMap(key string) : map[string]interface{}`
+- `GetStringMapString(key string) : map[string]string`
+- `GetStringSlice(key string) : []string`
+- `GetTime(key string) : time.Time`
+- `GetDuration(key string) : time.Duration`
 
 ## Contributing
 Contributions are most welcome! It could be a new feature, bug fix, refactoring or even reporting an issue.
