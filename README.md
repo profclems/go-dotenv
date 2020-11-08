@@ -84,7 +84,7 @@ func main() {
 
 ```
 
-All the above examples use the global DotEnv instance. You can instantiate a new .env instance:
+All the above examples use the global DotEnv instance. You can instantiate a new Dotenv instance:
 
 ```go
 cfg := dotenv.Init() // This will create a Dotenv instance using .env from the current dir
