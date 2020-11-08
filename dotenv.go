@@ -26,9 +26,9 @@ type DotEnv struct {
 	prefix            string
 	allowEmptyEnvVars bool
 
-	env    map[string]string
+	env             map[string]string
 	configOverrider map[string]interface{}
-	Config map[string]interface{}
+	Config          map[string]interface{}
 }
 
 // global DotEnv instance
@@ -55,12 +55,12 @@ func Init(file ...string) *DotEnv {
 	}
 
 	dotenv := &DotEnv{
-		ConfigFile: configFile,
-		Separator:  DefaultSeparator,
-		prefix:     defaultPrefix,
-		env:        make(map[string]string),
+		ConfigFile:      configFile,
+		Separator:       DefaultSeparator,
+		prefix:          defaultPrefix,
+		env:             make(map[string]string),
 		configOverrider: make(map[string]interface{}),
-		Config: make(map[string]interface{}),
+		Config:          make(map[string]interface{}),
 	}
 
 	return dotenv
@@ -316,7 +316,7 @@ func (e *DotEnv) LookUp(key string) (interface{}, bool) {
 // when getting the value
 func Set(key, value string) { d.Set(key, value) }
 
-func (e *DotEnv) Set(key string, value interface{}){
+func (e *DotEnv) Set(key string, value interface{}) {
 	key = e.addPrefix(key)
 	key = strings.ToUpper(key)
 
