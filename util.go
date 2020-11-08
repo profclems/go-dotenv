@@ -11,8 +11,8 @@ import (
 	"github.com/spf13/cast"
 )
 
-func readConfig(filePath string) (map[string]string, error) {
-	var config = make(map[string]string)
+func readConfig(filePath string) (map[string]interface{}, error) {
+	var config = make(map[string]interface{})
 	data, err := ioutil.ReadFile(filePath)
 	if err != nil {
 		return nil, err
@@ -22,43 +22,17 @@ func readConfig(filePath string) (map[string]string, error) {
 	for _, item := range temp {
 		env := strings.SplitN(item, "=", 2)
 		if len(env) > 1 {
-			config[env[0]] = env[1]
+			config[strings.ToUpper(env[0])] = env[1]
 		}
 	}
 	return config, nil
 }
 
-func writeToConfig(configFile, separator, key string, value string) error {
-	defer InvalidateEnvCacheForFile(configFile)
+func writeConfig(cfgFile, data string) error {
+	defer InvalidateEnvCacheForFile(cfgFile)
 
-	data, err := ioutil.ReadFile(configFile)
-	if err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("failed to read/update env config: %q", err)
-	}
-
-	file := string(data)
-	temp := strings.Split(file, "\n")
-	newData := ""
-	keyExists := false
-	newConfig := key + separator + (value) + "\n"
-	for _, item := range temp {
-		if item == "" {
-			continue
-		}
-
-		env := strings.SplitN(item, separator, 2)
-		if env[0] == key {
-			newData += newConfig
-			keyExists = true
-		} else {
-			newData += item + "\n"
-		}
-	}
-	if !keyExists {
-		newData += newConfig
-	}
-	_ = os.MkdirAll(filepath.Join(configFile, ".."), 0755)
-	if err = WriteFile(configFile, []byte(newData), 0666); err != nil {
+	_ = os.MkdirAll(filepath.Join(cfgFile, ".."), 0755)
+	if err := WriteFile(cfgFile, []byte(data), 0666); err != nil {
 		return fmt.Errorf("failed to write to config file: %q", err)
 	}
 

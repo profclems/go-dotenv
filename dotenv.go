@@ -13,7 +13,7 @@ var (
 	DefaultSeparator  = "="
 	defaultPrefix     string
 	// multiple config files cache: <file: <key: value>>
-	cachedConfig map[string]map[string]string
+	cachedConfig map[string]map[string]interface{}
 )
 
 // DotEnv is a config registry
@@ -27,7 +27,8 @@ type DotEnv struct {
 	allowEmptyEnvVars bool
 
 	env    map[string]string
-	Config map[string]string
+	configOverrider map[string]interface{}
+	Config map[string]interface{}
 }
 
 // global DotEnv instance
@@ -58,6 +59,8 @@ func Init(file ...string) *DotEnv {
 		Separator:  DefaultSeparator,
 		prefix:     defaultPrefix,
 		env:        make(map[string]string),
+		configOverrider: make(map[string]interface{}),
+		Config: make(map[string]interface{}),
 	}
 
 	return dotenv
@@ -96,7 +99,7 @@ func GetDotEnv() *DotEnv {
 func SetPrefix(prefix string) { d.SetPrefix(prefix) }
 
 func (e *DotEnv) SetPrefix(prefix string) {
-	e.prefix = prefix + "_"
+	e.prefix = strings.ToUpper(prefix) + "_"
 }
 
 // GetPrefix returns the prefix that ENVIRONMENT variables will use which is set with SetPrefix.
@@ -135,7 +138,7 @@ func (e *DotEnv) SetConfigFile(configFile string) {
 // Get can retrieve any value given the key to use.
 // Get is case-insensitive for a key.
 // Dotenv will check in the following order:
-// env, key/value store, config file, default
+// configOverride cache, env, key/value store, config file
 //
 // Get returns an interface. For a specific value use one of the Get___ methods e.g. GetBool(key) for a boolean value
 func Get(key string) interface{} { return d.Get(key) }
@@ -148,13 +151,19 @@ func (e *DotEnv) Get(key string) interface{} {
 		if e.Config != nil && len(e.Config) > 0 {
 			return d.Config[key]
 		}
-
-		envKey, exists := e.env[key]
-		if exists && (e.allowEmptyEnvVars || envKey != "") {
-			return envKey
+		// get from overridable config cache
+		envVal, isSet := e.configOverrider[key]
+		if isSet {
+			return envVal
+		}
+		// get from environment variable
+		envVal, isSet = e.env[key]
+		if isSet && (e.allowEmptyEnvVars || envVal != "") {
+			return envVal
 		}
 
-		envVal, _, _ := getConfigValueWithKey(e.ConfigFile, key)
+		// get from config file
+		envVal, _, _ = getConfigValueWithKey(e.ConfigFile, key)
 
 		return envVal
 	}
@@ -302,18 +311,38 @@ func (e *DotEnv) LookUp(key string) (interface{}, bool) {
 	return env, isSet
 }
 
-// Set writes or update env variable to config file atomically
-func Set(key, value string) error { return d.Set(key, value) }
+// Set sets or update env variable
+// This will be used instead of following the normal precedence
+// when getting the value
+func Set(key, value string) { d.Set(key, value) }
 
-func (e *DotEnv) Set(key, value string) error {
+func (e *DotEnv) Set(key string, value interface{}){
 	key = e.addPrefix(key)
+	key = strings.ToUpper(key)
 
-	// invalidate config cache
-	for kv := range e.Config {
-		delete(e.Config, kv)
+	e.Config[key] = value
+	e.configOverrider[key] = value
+}
+
+// Save writes the current configuration to a file.
+func Save() error { return d.Save() }
+
+func (e *DotEnv) Save() error {
+	cfgData := ""
+
+	for key, value := range e.Config {
+		cfgData += key + e.Separator + cast.ToString(value) + "\n"
 	}
-	// write to config
-	return writeToConfig(key, e.Separator, key, value)
+	return writeConfig(e.ConfigFile, cfgData)
+}
+
+// Write explicitly sets/update the configuration with the key-value provided
+// and writes the current configuration to a file.
+func Write(key string, value interface{}) error { return d.Write(key, value) }
+
+func (e *DotEnv) Write(key string, value interface{}) error {
+	e.Set(key, value)
+	return e.Save()
 }
 
 // InvalidateEnvCacheForFile invalidates the cached content of a file
@@ -337,7 +366,7 @@ func GetFromFile(filePath, key string) (interface{}, bool, error) {
 		}
 		configCache = c
 		if cachedConfig == nil {
-			cachedConfig = make(map[string]map[string]string)
+			cachedConfig = make(map[string]map[string]interface{})
 		}
 		cachedConfig[filePath] = configCache
 	}

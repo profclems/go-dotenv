@@ -38,6 +38,8 @@ import (
 )
 
 func main() {
+  // .env - It will search for the .env file in the current directory and load it. 
+  // You can explicitly set config file with dotenv.SetConfigFile("path/to/file.env")
   err := dotenv.LoadConfig()
   if err != nil {
     log.Fatalf("Error loading .env file: %v", err)
@@ -49,6 +51,50 @@ func main() {
 
   // now do something with s3 or whatever
 }
+```
+
+### Writing .env files
+
+```go
+import (
+	"fmt"
+	"github.com/profclems/go-dotenv"
+	"log"
+)
+
+func main() {
+	// SetConfigFile explicitly defines the path, name and extension of the config file.
+	dotenv.SetConfigFile("config/.env")
+    dotenv.LoadConfig()
+
+	dotenv.Set("STRONGEST_AVENGER", "Hulk")
+	dotenv.Set("PLAYER_NAME", "Anon")
+
+	err := dotenv.Save()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	value := dotenv.GetString("STRONGEST_AVENGER")
+	fmt.Printf("%s = %s \n", "STRONGEST_AVENGER", value)
+
+	value = dotenv.GetString("PLAYER_NAME")
+	fmt.Printf("%s = %s \n", "PLAYER_NAME", value)
+}
+
+```
+
+All the above examples use the global DotEnv instance. You can instantiate a new .env instance:
+
+```go
+cfg := dotenv.Init() // This will create a Dotenv instance using .env from the current dir
+
+or
+
+cfg := dotenv.Init("path/to/.env")
+cfg.LoadConfig()
+
+val := cfg.GetString("SOME_ENV")
 ```
 
 ### Getting Values From DotEnv
@@ -66,6 +112,7 @@ The following functions and methods exist to get a value depending the Type:
 - `GetTime(key string) : time.Time`
 - `GetDuration(key string) : time.Duration`
 - `isSet(key string) : bool`
+- `LookUp(key string) : (interface, bool)`
 
 ## Contributing
 Contributions are most welcome! It could be a new feature, bug fix, refactoring or even reporting an issue.
