@@ -11,7 +11,7 @@ import (
 	"github.com/spf13/cast"
 )
 
-func readConfig(filePath string) (map[string]interface{}, error) {
+func readConfig(filePath, separator string) (map[string]interface{}, error) {
 	var config = make(map[string]interface{})
 	data, err := ioutil.ReadFile(filePath)
 	if err != nil {
@@ -20,7 +20,7 @@ func readConfig(filePath string) (map[string]interface{}, error) {
 	file := string(data)
 	temp := strings.Split(file, "\n")
 	for _, item := range temp {
-		env := strings.SplitN(item, "=", 2)
+		env := strings.SplitN(item, separator, 2)
 		if len(env) > 1 {
 			config[strings.ToUpper(env[0])] = env[1]
 		}

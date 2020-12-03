@@ -76,7 +76,7 @@ func (e *DotEnv) LoadConfig() (err error) {
 	}
 	parseEnvVars(e)
 
-	e.Config, err = readConfig(e.ConfigFile)
+	e.Config, err = readConfig(e.ConfigFile, e.Separator)
 	return err
 }
 
@@ -163,7 +163,7 @@ func (e *DotEnv) Get(key string) interface{} {
 		}
 
 		// get from config file
-		envVal, _, _ = getConfigValueWithKey(e.ConfigFile, key)
+		envVal, _, _ = getConfigValueWithKey(e.ConfigFile, key, e.Separator)
 
 		return envVal
 	}
@@ -307,7 +307,7 @@ func (e *DotEnv) IsSet(key string) bool {
 func LookUp(key string) (interface{}, bool) { return d.LookUp(key) }
 
 func (e *DotEnv) LookUp(key string) (interface{}, bool) {
-	env, isSet, _ := GetFromFile(e.ConfigFile, key)
+	env, isSet, _ := GetFromFile(e.ConfigFile, key, e.Separator)
 	return env, isSet
 }
 
@@ -353,14 +353,14 @@ func InvalidateEnvCacheForFile(filePath string) {
 // GetFromFile retrieves the value of the config variable named by the key from the config file
 // If the variable is present in the environment the value (which may be empty) is returned and the boolean is true.
 // Otherwise the returned value will be empty and the boolean will be false.
-func GetFromFile(filePath, key string) (interface{}, bool, error) {
+func GetFromFile(filePath, key, separator string) (interface{}, bool, error) {
 	if !CheckFileExists(filePath) {
 		return "", false, os.ErrNotExist
 	}
 
 	configCache, okConfig := cachedConfig[filePath]
 	if !okConfig {
-		c, err := readConfig(filePath)
+		c, err := readConfig(filePath, separator)
 		if err != nil {
 			return nil, false, err
 		}
@@ -378,13 +378,13 @@ func GetFromFile(filePath, key string) (interface{}, bool, error) {
 	return "", false, nil
 }
 
-func getConfigValueWithKey(configFile, key string) (env interface{}, exists bool, err error) {
+func getConfigValueWithKey(configFile, key, separator string) (env interface{}, exists bool, err error) {
 	// first get os env var
 	env = os.Getenv(key)
 
 	if env == "" {
 		// Find config variable in config file
-		env, exists, err = GetFromFile(configFile, key)
+		env, exists, err = GetFromFile(configFile, key, separator)
 	}
 	return
 }
