@@ -15,7 +15,7 @@ The config cache store is set on first read operation.
 ## Installation
 
 ```sh
-go get -u github.com/joho/godotenv
+go get -u github.com/profclems/go-dotenv
 ```
 
 ## Usage
