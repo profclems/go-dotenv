@@ -22,7 +22,7 @@ func readConfig(filePath, separator string) (map[string]interface{}, error) {
 	for _, item := range temp {
 		env := strings.SplitN(item, separator, 2)
 		if len(env) > 1 {
-			config[strings.ToUpper(env[0])] = env[1]
+			config[strings.ToUpper(strings.TrimSpace(env[0]))] = strings.TrimSpace(env[1])
 		}
 	}
 	return config, nil
