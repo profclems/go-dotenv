@@ -127,4 +127,4 @@ Contributions are most welcome! It could be a new feature, bug fix, refactoring 
 ## License
 Copyright © [Clement Sam](http://twitter.com/clems_dev)
 
-glab is open-sourced software licensed under the [MIT](LICENSE) license.
+This package is open-sourced software licensed under the [MIT](LICENSE) license.
