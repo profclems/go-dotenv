@@ -1,8 +1,6 @@
 # Dotenv [![Go Report Card](https://goreportcard.com/badge/github.com/profclems/go-dotenv)](https://goreportcard.com/report/github.com/profclems/go-dotenv) [![PkgGoDev](https://pkg.go.dev/badge/mod/github.com/profclems/go-dotenv)](https://pkg.go.dev/mod/github.com/profclems/go-dotenv)
 
-Dotenv is a minimal Go Library for reading and writing .env configuration files. 
-It uses [renameio](https://github.com/google/renameio) to perform atomic write operations making sure _applications 
-never see unexpected file content (a half-written file, or a 0-byte file)_.
+Dotenv is a minimal Go Library for reading and writing .env configuration files.
 
 Dotenv reads config in the following order. Each item takes precedence over the item below it:
 

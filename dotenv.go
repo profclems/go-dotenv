@@ -1,8 +1,11 @@
 package dotenv
 
 import (
+	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/spf13/cast"
@@ -11,56 +14,75 @@ import (
 var (
 	DefaultConfigFile = ".env"
 	DefaultSeparator  = "="
-	defaultPrefix     string
 	// multiple config files cache: <file: <key: value>>
-	cachedConfig map[string]map[string]interface{}
+	mu           sync.RWMutex
+	cachedConfig = make(map[string]map[string]interface{})
 )
 
-// DotEnv is a config registry
+// DotEnv is a prioritized .env configuration registry.
+// It maintains a set of configuration sources, fetches
+// values to populate those, and provides them according
+// to the source's priority.
+// The priority of the sources is the following:
+// 1. env. variables
+// 2. config file
+// 3. key/value store
+// 4. defaults(when using structures)
+//
+// For example, if values from the following sources were loaded:
+//
+//	Defaults
+//		USER=default
+//		ENDPOINT=https://localhost
+//
+//	Config
+//		USER=root
+//		SECRET=secretFromConfig
+//
+//	Environment
+//		SECRET=secretFromEnv
+//
+// The resulting config will have the following values:
+//
+//	SECRET=secretFromEnv
+//	USER=root
+//	ENDPOINT=https://localhost
+//
+// DotEnv is safe for concurrent Get___() and Set() operations by multiple goroutines.
 type DotEnv struct {
 	ConfigFile string
 
-	// Separator is the symbol that separates a the key-value pair.
+	// Separator is the symbol that separates the key-value pair.
 	// Default is `=`
 	Separator         string
 	prefix            string
 	allowEmptyEnvVars bool
-
-	env             map[string]string
-	configOverrider map[string]interface{}
-	Config          map[string]interface{}
 }
 
 // global DotEnv instance
 var d *DotEnv
 
-func init() {
-	d = Init()
-}
-
-// Init returns an initialized DotEnv instance..
+// Init returns an initialized DotEnv instance.
 // Call this function as close as possible to the start of your program (ideally in main where your config file resides)
 // If you call Init without any args it will default to loading .env in the current path
 // You can otherwise tell it which file to load like
 //
-//		dotenv.Init("file.env")
+//	dotenv.Init("file.env")
 func Init(file ...string) *DotEnv {
 	var configFile string
 	if len(file) > 0 {
 		configFile = file[0]
 	}
 
+	// TODO: support multiple .env files in one instance
+
 	if configFile == "" {
 		configFile = DefaultConfigFile
 	}
 
 	dotenv := &DotEnv{
-		ConfigFile:      configFile,
-		Separator:       DefaultSeparator,
-		prefix:          defaultPrefix,
-		env:             make(map[string]string),
-		configOverrider: make(map[string]interface{}),
-		Config:          make(map[string]interface{}),
+		ConfigFile: configFile,
+		Separator:  DefaultSeparator,
 	}
 
 	return dotenv
@@ -68,24 +90,26 @@ func Init(file ...string) *DotEnv {
 
 // LoadConfig finds and read the config file.
 // returns os.ErrNotExist if config file does not exist
-func LoadConfig() error { return d.LoadConfig() }
+func LoadConfig() error { return loadConfig() }
 
-func (e *DotEnv) LoadConfig() (err error) {
-	if !CheckFileExists(e.ConfigFile) {
-		return os.ErrNotExist
+func loadConfig() error {
+	if d == nil {
+		d = Init()
 	}
-	parseEnvVars(e)
-
-	e.Config, err = readConfig(e.ConfigFile, e.Separator)
-	return err
+	return d.LoadConfig()
 }
 
-// parseEnvVars gets and parses all the available environment variables into the env map
-func parseEnvVars(dotenv *DotEnv) {
-	for _, e := range os.Environ() {
-		pair := strings.SplitN(e, "=", 2)
-		dotenv.env[pair[0]] = pair[1]
+func (e *DotEnv) LoadConfig() (err error) {
+	if !checkFileExists(e.ConfigFile) {
+		return os.ErrNotExist
 	}
+
+	c, err := readAndParseConfig(e.ConfigFile, e.Separator)
+	if err != nil {
+		return err
+	}
+	cachedConfig[e.ConfigFile] = c
+	return nil
 }
 
 // GetDotEnv returns the global DotEnv instance.
@@ -129,7 +153,13 @@ func (e *DotEnv) AllowEmptyEnvVars(allowEmptyEnvVars bool) {
 
 // SetConfigFile explicitly defines the path, name and extension of the config file.
 // Dotenv will use this and not check .env from the current directory.
-func SetConfigFile(configFile string) { d.SetConfigFile(configFile) }
+func SetConfigFile(configFile string) {
+	if d != nil {
+		d.SetConfigFile(configFile)
+	}
+
+	d = Init(configFile)
+}
 
 func (e *DotEnv) SetConfigFile(configFile string) {
 	e.ConfigFile = configFile
@@ -148,24 +178,21 @@ func (e *DotEnv) Get(key string) interface{} {
 		key = e.addPrefix(key)
 		key = strings.ToUpper(key)
 
-		if e.Config != nil && len(e.Config) > 0 {
-			return d.Config[key]
+		if val, ok := os.LookupEnv(key); ok {
+			if val == "" && !e.allowEmptyEnvVars {
+				return val
+			}
 		}
-		// get from overridable config cache
-		envVal, isSet := e.configOverrider[key]
-		if isSet {
-			return envVal
-		}
-		// get from environment variable
-		envVal, isSet = e.env[key]
-		if isSet && (e.allowEmptyEnvVars || envVal != "") {
-			return envVal
+
+		val, ok, err := GetFromFile(e.ConfigFile, key, e.Separator)
+		if err == nil && ok {
+			return val
 		}
 
 		// get from config file
-		envVal, _, _ = getConfigValueWithKey(e.ConfigFile, key, e.Separator)
+		envFromFile, _, _ := getConfigValueWithKey(e.ConfigFile, key, e.Separator)
 
-		return envVal
+		return envFromFile
 	}
 
 	return ""
@@ -320,8 +347,9 @@ func (e *DotEnv) Set(key string, value interface{}) {
 	key = e.addPrefix(key)
 	key = strings.ToUpper(key)
 
-	e.Config[key] = value
-	e.configOverrider[key] = value
+	mu.Lock()
+	cachedConfig[e.ConfigFile][key] = value
+	mu.Unlock()
 }
 
 // Save writes the current configuration to a file.
@@ -330,7 +358,10 @@ func Save() error { return d.Save() }
 func (e *DotEnv) Save() error {
 	cfgData := ""
 
-	for key, value := range e.Config {
+	mu.RLock()
+	defer mu.RUnlock()
+
+	for key, value := range cachedConfig[e.ConfigFile] {
 		cfgData += key + e.Separator + cast.ToString(value) + "\n"
 	}
 	return writeConfig(e.ConfigFile, cfgData)
@@ -347,20 +378,25 @@ func (e *DotEnv) Write(key string, value interface{}) error {
 
 // InvalidateEnvCacheForFile invalidates the cached content of a file
 func InvalidateEnvCacheForFile(filePath string) {
+	mu.Lock()
 	delete(cachedConfig, filePath)
+	mu.Unlock()
 }
 
 // GetFromFile retrieves the value of the config variable named by the key from the config file
 // If the variable is present in the environment the value (which may be empty) is returned and the boolean is true.
 // Otherwise the returned value will be empty and the boolean will be false.
 func GetFromFile(filePath, key, separator string) (interface{}, bool, error) {
-	if !CheckFileExists(filePath) {
+	if !checkFileExists(filePath) {
 		return "", false, os.ErrNotExist
 	}
 
+	mu.Lock()
+	defer mu.Unlock()
+
 	configCache, okConfig := cachedConfig[filePath]
 	if !okConfig {
-		c, err := readConfig(filePath, separator)
+		c, err := readAndParseConfig(filePath, separator)
 		if err != nil {
 			return nil, false, err
 		}
@@ -387,4 +423,24 @@ func getConfigValueWithKey(configFile, key, separator string) (env interface{}, 
 		env, exists, err = GetFromFile(configFile, key, separator)
 	}
 	return
+}
+
+func writeConfig(cfgFile, data string) error {
+	defer InvalidateEnvCacheForFile(cfgFile)
+
+	_ = os.MkdirAll(filepath.Join(cfgFile, ".."), 0755)
+	if err := WriteFile(cfgFile, []byte(data), 0666); err != nil {
+		return fmt.Errorf("failed to write to config file: %q", err)
+	}
+
+	return nil
+}
+
+// checkFileExists returns true if a file exists and is not a directory.
+func checkFileExists(filename string) bool {
+	info, err := os.Stat(filename)
+	if os.IsNotExist(err) {
+		return false
+	}
+	return !info.IsDir()
 }
