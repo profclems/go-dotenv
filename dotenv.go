@@ -1,91 +1,104 @@
 package dotenv
 
 import (
+	"fmt"
 	"os"
+	"path/filepath"
+	"reflect"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/spf13/cast"
 )
 
-var (
+const (
+	// DefaultConfigFile is the default name of the configuration file.
 	DefaultConfigFile = ".env"
-	DefaultSeparator  = "="
-	defaultPrefix     string
-	// multiple config files cache: <file: <key: value>>
-	cachedConfig map[string]map[string]interface{}
 )
 
-// DotEnv is a config registry
+// DotEnv is a prioritized .env configuration registry.
+// It maintains a set of configuration sources, fetches
+// values to populate those, and provides them according
+// to the source's priority.
+// The priority of the sources is the following:
+// 1. env. variables
+// 2. key/value cache/store (loaded from config file or set explicitly with Set())
+// 3. config file
+// 4. defaults(when using structures)
+//
+// For example, if values from the following sources were loaded:
+//
+//	Defaults
+//		USER=default
+//		ENDPOINT=https://localhost
+//
+//	Config
+//		USER=root
+//		SECRET=secretFromConfig
+//
+//	Environment
+//		SECRET=secretFromEnv
+//
+// The resulting config will have the following values:
+//
+//	SECRET=secretFromEnv
+//	USER=root
+//	ENDPOINT=https://localhost
+//
+// DotEnv is safe for concurrent Get___() and Set() operations by multiple goroutines.
 type DotEnv struct {
-	ConfigFile string
+	decoder Decoder
 
-	// Separator is the symbol that separates a the key-value pair.
-	// Default is `=`
-	Separator         string
+	configFile        string
 	prefix            string
 	allowEmptyEnvVars bool
 
-	env             map[string]string
-	configOverrider map[string]interface{}
-	Config          map[string]interface{}
+	mu           sync.RWMutex
+	cachedConfig map[string]any
 }
 
 // global DotEnv instance
 var d *DotEnv
 
-func init() {
-	d = Init()
-}
-
-// Init returns an initialized DotEnv instance..
-// Call this function as close as possible to the start of your program (ideally in main where your config file resides)
-// If you call Init without any args it will default to loading .env in the current path
-// You can otherwise tell it which file to load like
-//
-//		dotenv.Init("file.env")
-func Init(file ...string) *DotEnv {
-	var configFile string
-	if len(file) > 0 {
-		configFile = file[0]
+// New returns an initialized DotEnv instance.
+// This does not load the config file. You call LoadConfig() to do that.
+func New() *DotEnv {
+	return &DotEnv{
+		decoder:    &DefaultDecoder{},
+		configFile: DefaultConfigFile,
 	}
-
-	if configFile == "" {
-		configFile = DefaultConfigFile
-	}
-
-	dotenv := &DotEnv{
-		ConfigFile:      configFile,
-		Separator:       DefaultSeparator,
-		prefix:          defaultPrefix,
-		env:             make(map[string]string),
-		configOverrider: make(map[string]interface{}),
-		Config:          make(map[string]interface{}),
-	}
-
-	return dotenv
 }
 
 // LoadConfig finds and read the config file.
-// returns os.ErrNotExist if config file does not exist
-func LoadConfig() error { return d.LoadConfig() }
-
-func (e *DotEnv) LoadConfig() (err error) {
-	if !CheckFileExists(e.ConfigFile) {
-		return os.ErrNotExist
+// returns os.ErrNotExist if config file does not exist.
+// This loads the .env file from the current directory by default,
+// use SetConfigFile to set a custom path before calling this.
+func LoadConfig() error {
+	if d == nil {
+		d = New()
 	}
-	parseEnvVars(e)
-
-	e.Config, err = readConfig(e.ConfigFile, e.Separator)
-	return err
+	return d.LoadConfig()
 }
 
-// parseEnvVars gets and parses all the available environment variables into the env map
-func parseEnvVars(dotenv *DotEnv) {
-	for _, e := range os.Environ() {
-		pair := strings.SplitN(e, "=", 2)
-		dotenv.env[pair[0]] = pair[1]
+func (e *DotEnv) LoadConfig() error {
+	data, err := os.ReadFile(e.configFile)
+	if err != nil {
+		return err
 	}
+
+	config := make(map[string]any)
+
+	err = e.decoder.Decode(data, config)
+	if err != nil {
+		return err
+	}
+
+	e.mu.Lock()
+	e.cachedConfig = config
+	e.mu.Unlock()
+
+	return nil
 }
 
 // GetDotEnv returns the global DotEnv instance.
@@ -129,10 +142,85 @@ func (e *DotEnv) AllowEmptyEnvVars(allowEmptyEnvVars bool) {
 
 // SetConfigFile explicitly defines the path, name and extension of the config file.
 // Dotenv will use this and not check .env from the current directory.
-func SetConfigFile(configFile string) { d.SetConfigFile(configFile) }
+func SetConfigFile(configFile string) {
+	if d == nil {
+		d = New()
+	}
+	d.SetConfigFile(configFile)
+}
 
 func (e *DotEnv) SetConfigFile(configFile string) {
-	e.ConfigFile = configFile
+	e.configFile = configFile
+}
+
+// UnMarshal unmarshals the config file into a struct.
+func UnMarshal(v any) error {
+	return d.Unmarshal(v)
+}
+
+func (e *DotEnv) Unmarshal(v any) error {
+	val := reflect.ValueOf(v).Elem()
+
+	if vk := val.Kind(); vk != reflect.Struct {
+		return fmt.Errorf("expected a struct, got %T", vk)
+	}
+
+	typ := val.Type()
+	for i := 0; i < val.NumField(); i++ {
+		field := typ.Field(i)
+		fieldVal := val.Field(i)
+
+		if field.Type.Kind() == reflect.Struct {
+			if err := e.Unmarshal(fieldVal.Addr().Interface()); err != nil {
+				return err
+			}
+			continue
+		}
+
+		tag := field.Tag.Get("env")
+		var configVal string
+		if tag != "" {
+			if envVal := e.GetString(tag); envVal != "" {
+				configVal = envVal
+			}
+		}
+		if configVal == "" {
+			// set default value
+			if def := field.Tag.Get("default"); def != "" {
+				configVal = def
+			} else {
+				continue
+			}
+		}
+		// set the value based on the field type
+		switch field.Type {
+		case reflect.TypeOf(time.Time{}):
+			fieldVal.Set(reflect.ValueOf(cast.ToTime(configVal)))
+		case reflect.TypeOf(time.Duration(0)):
+			fieldVal.Set(reflect.ValueOf(cast.ToDuration(configVal)))
+		case reflect.TypeOf([]int{}):
+			fieldVal.Set(reflect.ValueOf(cast.ToIntSlice(configVal)))
+		case reflect.TypeOf([]string{}):
+			fieldVal.Set(reflect.ValueOf(cast.ToStringSlice(configVal)))
+		default:
+			switch field.Type.Kind() {
+			case reflect.String:
+				fieldVal.SetString(cast.ToString(configVal))
+			case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+				fieldVal.SetInt(cast.ToInt64(configVal))
+			case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+				fieldVal.SetUint(cast.ToUint64(configVal))
+			case reflect.Float32, reflect.Float64:
+				fieldVal.SetFloat(cast.ToFloat64(configVal))
+			case reflect.Bool:
+				fieldVal.SetBool(cast.ToBool(configVal))
+			default:
+				return fmt.Errorf("unsupported type %s", field.Type)
+			}
+		}
+	}
+
+	return nil
 }
 
 // Get can retrieve any value given the key to use.
@@ -141,34 +229,11 @@ func (e *DotEnv) SetConfigFile(configFile string) {
 // configOverride cache, env, key/value store, config file
 //
 // Get returns an interface. For a specific value use one of the Get___ methods e.g. GetBool(key) for a boolean value
-func Get(key string) interface{} { return d.Get(key) }
+func Get(key string) any { return d.Get(key) }
 
-func (e *DotEnv) Get(key string) interface{} {
-	if key != "" {
-		key = e.addPrefix(key)
-		key = strings.ToUpper(key)
-
-		if e.Config != nil && len(e.Config) > 0 {
-			return d.Config[key]
-		}
-		// get from overridable config cache
-		envVal, isSet := e.configOverrider[key]
-		if isSet {
-			return envVal
-		}
-		// get from environment variable
-		envVal, isSet = e.env[key]
-		if isSet && (e.allowEmptyEnvVars || envVal != "") {
-			return envVal
-		}
-
-		// get from config file
-		envVal, _, _ = getConfigValueWithKey(e.ConfigFile, key, e.Separator)
-
-		return envVal
-	}
-
-	return ""
+func (e *DotEnv) Get(key string) any {
+	val, _ := e.LookUp(key)
+	return val
 }
 
 // GetString returns the value associated with the key as a string.
@@ -262,27 +327,6 @@ func (e *DotEnv) GetStringSlice(key string) []string {
 	return cast.ToStringSlice(e.Get(key))
 }
 
-// GetStringMap returns the value associated with the key as a map of interfaces.
-func GetStringMap(key string) map[string]interface{} { return d.GetStringMap(key) }
-
-func (e *DotEnv) GetStringMap(key string) map[string]interface{} {
-	return cast.ToStringMap(e.Get(key))
-}
-
-// GetStringMapString returns the value associated with the key as a map of strings.
-func GetStringMapString(key string) map[string]string { return d.GetStringMapString(key) }
-
-func (e *DotEnv) GetStringMapString(key string) map[string]string {
-	return cast.ToStringMapString(e.Get(key))
-}
-
-// GetStringMapStringSlice returns the value associated with the key as a map to a slice of strings.
-func GetStringMapStringSlice(key string) map[string][]string { return d.GetStringMapStringSlice(key) }
-
-func (e *DotEnv) GetStringMapStringSlice(key string) map[string][]string {
-	return cast.ToStringMapStringSlice(e.Get(key))
-}
-
 // GetSizeInBytes returns the size of the value associated with the given key
 // in bytes.
 func GetSizeInBytes(key string) uint { return d.GetSizeInBytes(key) }
@@ -302,26 +346,42 @@ func (e *DotEnv) IsSet(key string) bool {
 }
 
 // LookUp retrieves the value of the configuration named by the key.
-// If the variable is present in the configuration file the value (which may be empty) is returned and the boolean is true.
+// If the variable is set (which may be empty) is returned and the boolean is true.
 // Otherwise the returned value will be empty and the boolean will be false.
-func LookUp(key string) (interface{}, bool) { return d.LookUp(key) }
+func LookUp(key string) (any, bool) { return d.LookUp(key) }
 
-func (e *DotEnv) LookUp(key string) (interface{}, bool) {
-	env, isSet, _ := GetFromFile(e.ConfigFile, key, e.Separator)
-	return env, isSet
+func (e *DotEnv) LookUp(key string) (any, bool) {
+	if key != "" {
+		key = strings.ToUpper(e.addPrefix(key))
+
+		if val, ok := os.LookupEnv(key); ok {
+			if val != "" && !e.allowEmptyEnvVars {
+				return val, true
+			}
+		}
+
+		e.mu.Lock()
+		defer e.mu.Unlock()
+
+		if cachedEnv, okEnv := e.cachedConfig[key]; okEnv {
+			return cachedEnv, true
+		}
+	}
+	return nil, false
 }
 
 // Set sets or update env variable
 // This will be used instead of following the normal precedence
 // when getting the value
-func Set(key, value string) { d.Set(key, value) }
+func Set(key string, value any) { d.Set(key, value) }
 
-func (e *DotEnv) Set(key string, value interface{}) {
+func (e *DotEnv) Set(key string, value any) {
 	key = e.addPrefix(key)
 	key = strings.ToUpper(key)
 
-	e.Config[key] = value
-	e.configOverrider[key] = value
+	e.mu.Lock()
+	e.cachedConfig[key] = value
+	e.mu.Unlock()
 }
 
 // Save writes the current configuration to a file.
@@ -330,61 +390,33 @@ func Save() error { return d.Save() }
 func (e *DotEnv) Save() error {
 	cfgData := ""
 
-	for key, value := range e.Config {
-		cfgData += key + e.Separator + cast.ToString(value) + "\n"
+	e.mu.RLock()
+	for key, value := range e.cachedConfig {
+		cfgData += fmt.Sprintf("%s=%s\n", key, cast.ToString(value))
 	}
-	return writeConfig(e.ConfigFile, cfgData)
+	e.mu.RUnlock()
+
+	return writeConfig(e.configFile, cfgData)
 }
 
 // Write explicitly sets/update the configuration with the key-value provided
 // and writes the current configuration to a file.
-func Write(key string, value interface{}) error { return d.Write(key, value) }
+// This is the same as
+//
+//	dotenv.Set(key, value)
+//	dotenv.Save()
+func Write(key string, value any) error { return d.Write(key, value) }
 
-func (e *DotEnv) Write(key string, value interface{}) error {
+func (e *DotEnv) Write(key string, value any) error {
 	e.Set(key, value)
 	return e.Save()
 }
 
-// InvalidateEnvCacheForFile invalidates the cached content of a file
-func InvalidateEnvCacheForFile(filePath string) {
-	delete(cachedConfig, filePath)
-}
-
-// GetFromFile retrieves the value of the config variable named by the key from the config file
-// If the variable is present in the environment the value (which may be empty) is returned and the boolean is true.
-// Otherwise the returned value will be empty and the boolean will be false.
-func GetFromFile(filePath, key, separator string) (interface{}, bool, error) {
-	if !CheckFileExists(filePath) {
-		return "", false, os.ErrNotExist
+func writeConfig(cfgFile, data string) error {
+	_ = os.MkdirAll(filepath.Join(cfgFile, ".."), 0755)
+	if err := os.WriteFile(cfgFile, []byte(data), 0666); err != nil {
+		return fmt.Errorf("failed to write to config file: %q", err)
 	}
 
-	configCache, okConfig := cachedConfig[filePath]
-	if !okConfig {
-		c, err := readConfig(filePath, separator)
-		if err != nil {
-			return nil, false, err
-		}
-		configCache = c
-		if cachedConfig == nil {
-			cachedConfig = make(map[string]map[string]interface{})
-		}
-		cachedConfig[filePath] = configCache
-	}
-
-	if cachedEnv, okEnv := configCache[key]; okEnv {
-		return cachedEnv, true, nil
-	}
-
-	return "", false, nil
-}
-
-func getConfigValueWithKey(configFile, key, separator string) (env interface{}, exists bool, err error) {
-	// first get os env var
-	env = os.Getenv(key)
-
-	if env == "" {
-		// Find config variable in config file
-		env, exists, err = GetFromFile(configFile, key, separator)
-	}
-	return
+	return nil
 }

@@ -1,8 +1,6 @@
 # Dotenv [![Go Report Card](https://goreportcard.com/badge/github.com/profclems/go-dotenv)](https://goreportcard.com/report/github.com/profclems/go-dotenv) [![PkgGoDev](https://pkg.go.dev/badge/mod/github.com/profclems/go-dotenv)](https://pkg.go.dev/mod/github.com/profclems/go-dotenv)
 
-Dotenv is a minimal Go Library for reading and writing .env configuration files. 
-It uses [renameio](https://github.com/google/renameio) to perform atomic write operations making sure _applications 
-never see unexpected file content (a half-written file, or a 0-byte file)_.
+Dotenv is a minimal Go Library for reading and writing .env configuration files.
 
 Dotenv reads config in the following order. Each item takes precedence over the item below it:
 
@@ -59,14 +57,18 @@ func main() {
 ```go
 import (
 	"fmt"
-	"github.com/profclems/go-dotenv"
 	"log"
+	
+	"github.com/profclems/go-dotenv"
 )
 
 func main() {
 	// SetConfigFile explicitly defines the path, name and extension of the config file.
 	dotenv.SetConfigFile("config/.env")
-    dotenv.LoadConfig()
+    err := dotenv.LoadConfig()
+	if err != nil {
+		log.Fatalf("Error loading .env file: %v", err)
+	}
 
 	dotenv.Set("STRONGEST_AVENGER", "Hulk")
 	dotenv.Set("PLAYER_NAME", "Anon")
@@ -88,12 +90,12 @@ func main() {
 All the above examples use the global DotEnv instance. You can instantiate a new Dotenv instance:
 
 ```go
-cfg := dotenv.Init() // This will create a Dotenv instance using .env from the current dir
-
-or
-
-cfg := dotenv.Init("path/to/.env")
-cfg.LoadConfig()
+cfg := dotenv.New()
+cfg.SetConfigFile("path/to/.env")
+err := cfg.LoadConfig()
+if err != nil {
+	log.Fatalf("Error loading .env file: %v", err)
+}
 
 val := cfg.GetString("SOME_ENV")
 ```
@@ -101,19 +103,18 @@ val := cfg.GetString("SOME_ENV")
 ### Getting Values From DotEnv
 The following functions and methods exist to get a value depending the Type:
 
-- `Get(key string) : interface{}`
+- `Get(key string) : any`
+- `GetString(key string) : string`
 - `GetBool(key string) : bool`
 - `GetFloat64(key string) : float64`
 - `GetInt(key string) : int`
 - `GetIntSlice(key string) : []int`
-- `GetString(key string) : string`
-- `GetStringMap(key string) : map[string]interface{}`
-- `GetStringMapString(key string) : map[string]string`
 - `GetStringSlice(key string) : []string`
 - `GetTime(key string) : time.Time`
 - `GetDuration(key string) : time.Duration`
 - `isSet(key string) : bool`
-- `LookUp(key string) : (interface, bool)`
+- `LookUp(key string) : (any, bool)`
+- `Set(key string, value any)`
 
 ## Contributing
 Contributions are most welcome! It could be a new feature, bug fix, refactoring or even reporting an issue.
