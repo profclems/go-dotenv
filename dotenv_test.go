@@ -4,22 +4,22 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/profclems/go-dotenv"
 )
 
 func testReadEnvAndCompare(t *testing.T, envFileName string, expectedValues map[string]string) {
+	dotenv := dotenv.New()
 	dotenv.SetConfigFile(envFileName)
-	err := dotenv.LoadConfig()
+	err := dotenv.Load()
 	if err != nil {
 		t.Error("Error loading config", err)
 	}
 
 	for key, value := range expectedValues {
-		if envVal := dotenv.GetString(key); envVal != value {
-			t.Errorf("Read got one of the keys wrong. Expected: %q got %q", value, envVal)
-		}
+		assert.Equal(t, value, dotenv.GetString(key))
 	}
 }
 
@@ -53,7 +53,7 @@ func TestLoadUnquotedEnv(t *testing.T) {
 }
 
 func TestLoadQuotedEnv(t *testing.T) {
-	t.Skip()
+	//t.Skip()
 	envFileName := "fixtures/quoted.env"
 	expectedValues := map[string]string{
 		"OPTION_A": "1",
@@ -85,7 +85,7 @@ func TestLoadExportedEnv(t *testing.T) {
 
 	dotenv := dotenv.New()
 	dotenv.SetConfigFile(envFileName)
-	err := dotenv.LoadConfig()
+	err := dotenv.Load()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -95,6 +95,14 @@ func TestLoadExportedEnv(t *testing.T) {
 			t.Errorf("Expected: %q got %q", value, dotenv.Get(key))
 		}
 	}
+}
+
+func TestErrorParsing(t *testing.T) {
+	envFileName := "fixtures/invalid.env"
+	dotenv := dotenv.New()
+	dotenv.SetConfigFile(envFileName)
+	err := dotenv.Load()
+	assert.ErrorContains(t, err, "line 7: key cannot contain spaces")
 }
 
 func TestUnMarshal(t *testing.T) {
@@ -147,7 +155,7 @@ func TestUnMarshal(t *testing.T) {
 
 	dotenv := dotenv.New()
 	dotenv.SetConfigFile("fixtures/test.env")
-	err := dotenv.LoadConfig()
+	err := dotenv.Load()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -160,9 +168,4 @@ func TestUnMarshal(t *testing.T) {
 	}
 
 	require.Equal(t, expectedConfig, config)
-	marshal, err := dotenv.Marshal(config)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Log(string(marshal))
 }

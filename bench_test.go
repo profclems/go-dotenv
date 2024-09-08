@@ -11,7 +11,7 @@ func BenchmarkDotenv_LoadConfig(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		config := dotenv.New()
 		config.SetConfigFile("fixtures/large.env")
-		err := config.LoadConfig()
+		err := config.Load()
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -21,7 +21,7 @@ func BenchmarkDotenv_LoadConfig(b *testing.B) {
 func BenchmarkDotenv_Init_GetSet(b *testing.B) {
 	config := dotenv.New()
 	config.SetConfigFile("fixtures/large.env")
-	err := config.LoadConfig()
+	err := config.Load()
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -29,7 +29,7 @@ func BenchmarkDotenv_Init_GetSet(b *testing.B) {
 	b.Run("Get", func(b *testing.B) {
 		b.ReportAllocs()
 		for i := 0; i < b.N; i++ {
-			_ = config.GetString("APP_NAME")
+			_ = config.Get("APP_NAME")
 		}
 	})
 
@@ -43,7 +43,7 @@ func BenchmarkDotenv_Init_GetSet(b *testing.B) {
 
 func BenchmarkDotenv_LoadConfig_GetSet(b *testing.B) {
 	dotenv.SetConfigFile("fixtures/large.env")
-	err := dotenv.LoadConfig()
+	err := dotenv.Load()
 	if err != nil {
 		b.Fatal(err)
 	}

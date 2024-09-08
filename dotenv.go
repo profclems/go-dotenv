@@ -1,6 +1,7 @@
 package dotenv
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -8,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"github.com/spf13/cast"
 )
@@ -62,7 +64,7 @@ type DotEnv struct {
 var d *DotEnv
 
 // New returns an initialized DotEnv instance.
-// This does not load the config file. You call LoadConfig() to do that.
+// This does not load the config file. You call Load() to do that.
 func New() *DotEnv {
 	return &DotEnv{
 		decoder:    &DefaultDecoder{},
@@ -70,23 +72,26 @@ func New() *DotEnv {
 	}
 }
 
-// LoadConfig finds and read the config file.
+var utf8BOM = []byte("\uFEFF")
+
+// Load finds and read the config file.
 // returns os.ErrNotExist if config file does not exist.
 // This loads the .env file from the current directory by default,
 // use SetConfigFile to set a custom path before calling this.
-func LoadConfig() error {
+func Load() error {
 	if d == nil {
 		d = New()
 	}
-	return d.LoadConfig()
+	return d.Load()
 }
 
-func (e *DotEnv) LoadConfig() error {
+func (e *DotEnv) Load() error {
 	data, err := os.ReadFile(e.configFile)
 	if err != nil {
 		return err
 	}
 
+	data = bytes.TrimPrefix(data, utf8BOM)
 	config := make(map[string]any)
 
 	err = e.decoder.Decode(data, config)
@@ -99,6 +104,22 @@ func (e *DotEnv) LoadConfig() error {
 	e.mu.Unlock()
 
 	return nil
+}
+
+// LoadWithDecoder finds and read the config file using the provided decoder.
+// returns os.ErrNotExist if config file does not exist.
+// This loads the .env file from the current directory by default,
+// use SetConfigFile to set a custom path before calling this.
+func LoadWithDecoder(decoder Decoder) error {
+	if d == nil {
+		d = New()
+	}
+	return d.LoadWithDecoder(decoder)
+}
+
+func (e *DotEnv) LoadWithDecoder(decoder Decoder) error {
+	e.decoder = decoder
+	return e.Load()
 }
 
 // GetDotEnv returns the global DotEnv instance.
@@ -419,4 +440,47 @@ func writeConfig(cfgFile, data string) error {
 	}
 
 	return nil
+}
+
+func safeMul(a, b uint) uint {
+	c := a * b
+	if a > 1 && b > 1 && c/b != a {
+		return 0
+	}
+	return c
+}
+
+// parseSizeInBytes converts strings like 1GB or 12 mb into an unsigned integer number of bytes
+func parseSizeInBytes(sizeStr string) uint {
+	sizeStr = strings.TrimSpace(sizeStr)
+	lastChar := len(sizeStr) - 1
+	multiplier := uint(1)
+
+	if lastChar > 0 {
+		if sizeStr[lastChar] == 'b' || sizeStr[lastChar] == 'B' {
+			if lastChar > 1 {
+				switch unicode.ToLower(rune(sizeStr[lastChar-1])) {
+				case 'k':
+					multiplier = 1 << 10
+					sizeStr = strings.TrimSpace(sizeStr[:lastChar-1])
+				case 'm':
+					multiplier = 1 << 20
+					sizeStr = strings.TrimSpace(sizeStr[:lastChar-1])
+				case 'g':
+					multiplier = 1 << 30
+					sizeStr = strings.TrimSpace(sizeStr[:lastChar-1])
+				default:
+					multiplier = 1
+					sizeStr = strings.TrimSpace(sizeStr[:lastChar])
+				}
+			}
+		}
+	}
+
+	size := cast.ToInt(sizeStr)
+	if size < 0 {
+		size = 0
+	}
+
+	return safeMul(uint(size), multiplier)
 }

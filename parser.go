@@ -5,14 +5,14 @@ import (
 	"os"
 	"regexp"
 	"strings"
-	"unicode"
+)
 
-	"github.com/spf13/cast"
+const (
+	prefixSingleQuote = '\''
+	prefixDoubleQuote = '"'
 )
 
 var (
-	singleQuotesRegex  = regexp.MustCompile(`\A'(.*)'\z`)
-	doubleQuotesRegex  = regexp.MustCompile(`\A"(.*)"\z`)
 	escapeRegex        = regexp.MustCompile(`\\.`)
 	unescapeCharsRegex = regexp.MustCompile(`\\([^$])`)
 )
@@ -23,43 +23,112 @@ type Decoder interface {
 }
 
 // DefaultDecoder is the default decoder used by the library.
-type DefaultDecoder struct{}
+type DefaultDecoder struct {
+	line int
+}
 
 // Decode decodes the contents of b into v.
 func (d *DefaultDecoder) Decode(b []byte, v map[string]any) error {
 	data := string(b)
 	lines := strings.Split(data, "\n")
+
+	var curKey, curVal string
+	var curQuote byte
+
 	for _, line := range lines {
-		err := parseLine(line, v)
-		if err != nil {
-			return err
+		d.line++
+		if curQuote == 0 {
+			// not in a quoted value block
+			line = strings.TrimSpace(line)
+			// Skip empty lines and comments
+			if line == "" || line[0] == '#' {
+				continue
+			}
+
+			// find the first occurrence of an equal sign or colon
+			key, val, ok := strings.Cut(line, "=")
+			if !ok {
+				key, val, ok = strings.Cut(line, ":")
+				// TODO: support inherited variables
+			}
+			key = strings.TrimSpace(key)
+			if !strings.HasPrefix(key, "export ") && strings.Contains(key, " ") {
+				return fmt.Errorf("line %d: key cannot contain spaces", d.line)
+			}
+
+			val = strings.TrimSpace(val)
+			// check if the value is quoted
+			quote, isQuoted := isPrefixQuoted(val)
+			if isQuoted {
+				// get the value without the quotes
+				// if the value is quoted, check if it's a multi-line value
+				idx := d.findTerminator(val[1:], quote)
+				if idx == -1 {
+					// if the value is not terminated, continue to the next line
+					curKey = key
+					curVal = val
+					curQuote = quote
+					continue
+				}
+			}
+
+			val = parseValue(val)
+			addEnv(key, val, v)
+			continue
 		}
+
+		// in a quoted value block
+		curVal += "\n" + line
+		if d.findTerminator(line, curQuote) == -1 {
+			continue
+		}
+
+		// value is terminated, parse and add to the environment
+		curVal = parseValue(curVal)
+		addEnv(curKey, curVal, v)
+		curKey, curVal, curQuote = "", "", 0
+	}
+
+	if curQuote != 0 {
+		return fmt.Errorf("line %d: unterminated quoted value", d.line)
+
 	}
 	return nil
 }
 
-func parseLine(line string, envMap map[string]any) error {
-	line = strings.TrimSpace(line)
-	// Skip empty lines and comments
-	if line == "" || line[0] == '#' {
-		return nil
+// addEnv adds the key and value to the environment.
+func addEnv(key, value string, v map[string]any) {
+	if strings.HasPrefix(key, "export ") {
+		_ = os.Setenv(key[7:], value)
+		return
 	}
+	v[strings.ToUpper(key)] = value
+}
 
-	// find the first occurrence of an equal sign or colon
-	key, val, ok := strings.Cut(line, "=")
-	if !ok {
-		key, val, ok = strings.Cut(line, ":")
-		if !ok {
-			return fmt.Errorf("invalid format: %s", line)
+// findTerminator finds the terminator of a quote in a string
+// and returns the index of the terminator.
+func (d *DefaultDecoder) findTerminator(str string, quote byte) int {
+	previousCharIsEscape := false
+	for i := 0; i < len(str); i++ {
+		char := str[i]
+
+		if char == quote {
+			if !previousCharIsEscape {
+				return i
+			}
+		}
+
+		if !previousCharIsEscape && char == '\\' {
+			previousCharIsEscape = true
+			continue
+		}
+		if previousCharIsEscape {
+			previousCharIsEscape = false
+			continue
 		}
 	}
-	val = parseValue(val)
-	if strings.HasPrefix(key, "export ") {
-		_ = os.Setenv(key[7:], val)
-		return nil
-	}
-	envMap[strings.ToUpper(strings.TrimSpace(key))] = val
-	return nil
+
+	return -1
 }
 
 func parseValue(value string) string {
@@ -69,8 +138,7 @@ func parseValue(value string) string {
 	}
 
 	// remove comments but only if the value is not quoted
-	if !(strings.HasPrefix(value, `"`) && strings.HasSuffix(value, `"`)) &&
-		!(strings.HasPrefix(value, `'`) && strings.HasSuffix(value, `'`)) {
+	if !isQuoted(value) {
 		if i := strings.Index(value, "#"); i >= 0 {
 			value = value[:i]
 		}
@@ -78,13 +146,11 @@ func parseValue(value string) string {
 	// remove leading and trailing spaces
 	value = strings.TrimSpace(value)
 	if len(value) > 1 {
-		// check if we have quoted values or possible escape characters
-		singleQuotes := singleQuotesRegex.FindStringSubmatch(value)
-		doubleQuotes := doubleQuotesRegex.FindStringSubmatch(value)
-		if singleQuotes != nil || doubleQuotes != nil {
+		if quote, ok := isPrefixQuoted(value); ok {
+			// remove quotes
 			value = value[1 : len(value)-1]
 
-			if doubleQuotes != nil {
+			if quote == prefixDoubleQuote {
 				value = escapeRegex.ReplaceAllStringFunc(value, func(s string) string {
 					c := strings.TrimPrefix(s, "\\")
 					switch c {
@@ -104,45 +170,22 @@ func parseValue(value string) string {
 	return value
 }
 
-func safeMul(a, b uint) uint {
-	c := a * b
-	if a > 1 && b > 1 && c/b != a {
-		return 0
+func isPrefixQuoted(s string) (byte, bool) {
+	if s == "" {
+		return 0, false
 	}
-	return c
+	switch quote := s[0]; quote {
+	case prefixDoubleQuote, prefixSingleQuote:
+		return quote, true
+	default:
+		return 0, false
+	}
 }
 
-// parseSizeInBytes converts strings like 1GB or 12 mb into an unsigned integer number of bytes
-func parseSizeInBytes(sizeStr string) uint {
-	sizeStr = strings.TrimSpace(sizeStr)
-	lastChar := len(sizeStr) - 1
-	multiplier := uint(1)
-
-	if lastChar > 0 {
-		if sizeStr[lastChar] == 'b' || sizeStr[lastChar] == 'B' {
-			if lastChar > 1 {
-				switch unicode.ToLower(rune(sizeStr[lastChar-1])) {
-				case 'k':
-					multiplier = 1 << 10
-					sizeStr = strings.TrimSpace(sizeStr[:lastChar-1])
-				case 'm':
-					multiplier = 1 << 20
-					sizeStr = strings.TrimSpace(sizeStr[:lastChar-1])
-				case 'g':
-					multiplier = 1 << 30
-					sizeStr = strings.TrimSpace(sizeStr[:lastChar-1])
-				default:
-					multiplier = 1
-					sizeStr = strings.TrimSpace(sizeStr[:lastChar])
-				}
-			}
-		}
+func isQuoted(s string) bool {
+	if len(s) < 2 {
+		return false
 	}
 
-	size := cast.ToInt(sizeStr)
-	if size < 0 {
-		size = 0
-	}
-
-	return safeMul(uint(size), multiplier)
+	return s[0] == s[len(s)-1] && (s[0] == prefixDoubleQuote || s[0] == prefixSingleQuote)
 }

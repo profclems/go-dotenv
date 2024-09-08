@@ -8,7 +8,7 @@ import (
 )
 
 func main() {
-	err := dotenv.LoadConfig()
+	err := dotenv.Load()
 	if err != nil {
 		log.Fatal(err)
 	}
