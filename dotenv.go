@@ -338,14 +338,19 @@ func (e *DotEnv) GetDuration(key string) time.Duration {
 func GetIntSlice(key string) []int { return d.GetIntSlice(key) }
 
 func (e *DotEnv) GetIntSlice(key string) []int {
-	return cast.ToIntSlice(e.Get(key))
+	return cast.ToIntSlice(toSlice(e.GetString(key)))
+}
+func toSlice(value string) []string {
+	value = strings.TrimPrefix(value, "[")
+	value = strings.TrimSuffix(value, "]")
+	return strings.Split(value, ",")
 }
 
 // GetStringSlice returns the value associated with the key as a slice of strings.
 func GetStringSlice(key string) []string { return d.GetStringSlice(key) }
 
 func (e *DotEnv) GetStringSlice(key string) []string {
-	return cast.ToStringSlice(e.Get(key))
+	return cast.ToStringSlice(toSlice(e.GetString(key)))
 }
 
 // GetSizeInBytes returns the size of the value associated with the given key
@@ -362,8 +367,8 @@ func (e *DotEnv) GetSizeInBytes(key string) uint {
 func IsSet(key string) bool { return d.IsSet(key) }
 
 func (e *DotEnv) IsSet(key string) bool {
-	val := e.Get(key)
-	return val != nil
+	_, set := e.LookUp(key)
+	return set
 }
 
 // LookUp retrieves the value of the configuration named by the key.
