@@ -233,6 +233,10 @@ func (e *DotEnv) Unmarshal(v any) (err error) {
 
 		if fieldVal.CanAddr() {
 			if m, ok := fieldVal.Addr().Interface().(encoding.TextUnmarshaler); ok {
+				val := getConfigVal()
+				if val == "" {
+					continue
+				}
 				if err := m.UnmarshalText([]byte(getConfigVal())); err != nil {
 					return err
 				}
@@ -248,6 +252,9 @@ func (e *DotEnv) Unmarshal(v any) (err error) {
 		}
 
 		configVal := getConfigVal()
+		if configVal == "" {
+			continue
+		}
 
 		// set the value based on the field type
 		switch field.Type {
