@@ -451,9 +451,14 @@ func (e *DotEnv) Set(key string, value any) {
 	e.mu.Unlock()
 }
 
+// Deprecated: to be removed in v2.0.0
+//
 // Save writes the current configuration to a file.
 func Save() error { return GetDotEnv().Save() }
 
+// Deprecated: to be removed in v2.0.0
+//
+// Save writes the current configuration to a file.
 func (e *DotEnv) Save() error {
 	cfgData := ""
 
