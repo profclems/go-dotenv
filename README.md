@@ -70,8 +70,6 @@ SECRET_KEY=yoursecretKey # This is also a comment
 export PRIORITY_LEVEL=2
 ```
 
-```env
-
 All the above examples use the global DotEnv instance. You can instantiate a new Dotenv instance:
 
 ```go
