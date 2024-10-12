@@ -18,7 +18,7 @@ func BenchmarkDotenv_Load(b *testing.B) {
 	}
 }
 
-func BenchmarkDotenv_Init_GetSet(b *testing.B) {
+func BenchmarkDotenv_instance(b *testing.B) {
 	config := dotenv.New()
 	config.SetConfigFile("fixtures/large.env")
 	err := config.Load()
@@ -26,12 +26,26 @@ func BenchmarkDotenv_Init_GetSet(b *testing.B) {
 		b.Fatal(err)
 	}
 
+	b.ResetTimer()
+
 	b.Run("Get", func(b *testing.B) {
 		b.ReportAllocs()
 		for i := 0; i < b.N; i++ {
-			_ = config.Get("APP_NAME")
+			_ = config.Get("DB_USERNAME")
 		}
 	})
+
+	b.ResetTimer()
+
+	// benchmark Get for a key that does not exist
+	b.Run("Get_NotExist", func(b *testing.B) {
+		b.ReportAllocs()
+		for i := 0; i < b.N; i++ {
+			_ = config.Get("DB_USERNAME_NOT_EXIST")
+		}
+	})
+
+	b.ResetTimer()
 
 	b.Run("Set", func(b *testing.B) {
 		b.ReportAllocs()
@@ -41,24 +55,36 @@ func BenchmarkDotenv_Init_GetSet(b *testing.B) {
 	})
 }
 
-func BenchmarkDotenv_Load_GetSet(b *testing.B) {
+func BenchmarkDotenv_global(b *testing.B) {
 	dotenv.SetConfigFile("fixtures/large.env")
 	err := dotenv.Load()
 	if err != nil {
 		b.Fatal(err)
 	}
 
+	b.ResetTimer()
 	b.Run("Get", func(b *testing.B) {
 		b.ReportAllocs()
 		for i := 0; i < b.N; i++ {
-			_ = dotenv.Get("APP_NAME")
+			_ = dotenv.Get("DB_USERNAME")
 		}
 	})
+
+	b.ResetTimer()
+	// benchmark Get for a key that does not exist
+	b.Run("Get_NotExist", func(b *testing.B) {
+		b.ReportAllocs()
+		for i := 0; i < b.N; i++ {
+			_ = dotenv.Get("DB_USERNAME_NOT_EXIST")
+		}
+	})
+
+	b.ResetTimer()
 
 	b.Run("Set", func(b *testing.B) {
 		b.ReportAllocs()
 		for i := 0; i < b.N; i++ {
-			dotenv.Set("APP_NAME", "My App")
+			dotenv.Set("DB_USERNAME", "My App")
 		}
 	})
 }

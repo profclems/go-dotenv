@@ -27,8 +27,7 @@ const (
 // The priority of the sources is the following:
 // 1. env. variables
 // 2. key/value cache/store (loaded from config file or set explicitly with Set())
-// 3. config file
-// 4. defaults(when using structures)
+// 3. defaults(when using structures)
 //
 // For example, if values from the following sources were loaded:
 //
@@ -147,11 +146,7 @@ func GetDotEnv() *DotEnv {
 // SetPrefix defines a prefix that ENVIRONMENT variables will use.
 // E.g. if your prefix is "pro", the env registry will look for env
 // variables that start with "PRO_".
-func SetPrefix(prefix string) {
-	_globalMu.Lock()
-	_global.SetPrefix(prefix)
-	_globalMu.Unlock()
-}
+func SetPrefix(prefix string) { GetDotEnv().SetPrefix(prefix) }
 
 func (e *DotEnv) SetPrefix(prefix string) {
 	e.prefix = strings.ToUpper(prefix) + "_"
