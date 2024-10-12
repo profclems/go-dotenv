@@ -1,14 +1,24 @@
 # Dotenv [![Go Report Card](https://goreportcard.com/badge/github.com/profclems/go-dotenv)](https://goreportcard.com/report/github.com/profclems/go-dotenv) [![PkgGoDev](https://pkg.go.dev/badge/mod/github.com/profclems/go-dotenv)](https://pkg.go.dev/mod/github.com/profclems/go-dotenv)
 
-Dotenv is a minimal Go Library for reading and writing .env configuration files.
+Dotenv is a minimal Go Library for reading .env configuration files.
 
 Dotenv reads config in the following order. Each item takes precedence over the item below it:
 
 - env
-- key-value config cache/store
-- config
+- key-value config cache/store (loaded from the .env file or set explicitly)
+- default (when using structures)
 
 The config cache store is set on first read operation.
+
+```sh
+BenchmarkDotenv_Load-12            57186             19774 ns/op           17477 B/op         89 allocs/op
+BenchmarkDotenv_instance/Get-12                         30091465                39.93 ns/op            0 B/op          0 allocs/op
+BenchmarkDotenv_instance/Get_NotExist-12                24608632                48.31 ns/op            0 B/op          0 allocs/op
+BenchmarkDotenv_instance/Set-12                         52317692                23.51 ns/op            0 B/op          0 allocs/op
+BenchmarkDotenv_global/Get-12                           25803398                46.73 ns/op            0 B/op          0 allocs/op
+BenchmarkDotenv_global/Get_NotExist-12                  20868642                59.51 ns/op            0 B/op          0 allocs/op
+BenchmarkDotenv_global/Set-12                           37934266                32.20 ns/op            0 B/op          0 allocs/op
+```
 
 ## Installation
 
@@ -25,7 +35,7 @@ SECRET_KEY=yoursecretKey
 PRIORITY_LEVEL=2
 ```
 
-### Reading .env files
+Then in your Go application, you can do something like this:
 
 ```go
 package main
@@ -39,7 +49,7 @@ import (
 func main() {
   // .env - It will search for the .env file in the current directory and load it. 
   // You can explicitly set config file with dotenv.SetConfigFile("path/to/file.env")
-  err := dotenv.LoadConfig()
+  err := dotenv.Load()
   if err != nil {
     log.Fatalf("Error loading .env file: %v", err)
   }
@@ -52,47 +62,22 @@ func main() {
 }
 ```
 
-### Writing .env files
-
-```go
-import (
-	"fmt"
-	"log"
-	
-	"github.com/profclems/go-dotenv"
-)
-
-func main() {
-	// SetConfigFile explicitly defines the path, name and extension of the config file.
-	dotenv.SetConfigFile("config/.env")
-    err := dotenv.LoadConfig()
-	if err != nil {
-		log.Fatalf("Error loading .env file: %v", err)
-	}
-
-	dotenv.Set("STRONGEST_AVENGER", "Hulk")
-	dotenv.Set("PLAYER_NAME", "Anon")
-
-	err := dotenv.Save()
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	value := dotenv.GetString("STRONGEST_AVENGER")
-	fmt.Printf("%s = %s \n", "STRONGEST_AVENGER", value)
-
-	value = dotenv.GetString("PLAYER_NAME")
-	fmt.Printf("%s = %s \n", "PLAYER_NAME", value)
-}
-
+Comments and exports are supported:
+```dotenv
+# This is a comment
+S3_BUCKET=yours3bucket
+SECRET_KEY=yoursecretKey # This is also a comment
+export PRIORITY_LEVEL=2
 ```
+
+```env
 
 All the above examples use the global DotEnv instance. You can instantiate a new Dotenv instance:
 
 ```go
 cfg := dotenv.New()
 cfg.SetConfigFile("path/to/.env")
-err := cfg.LoadConfig()
+err := cfg.Load()
 if err != nil {
 	log.Fatalf("Error loading .env file: %v", err)
 }
