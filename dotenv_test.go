@@ -1,6 +1,8 @@
 package dotenv_test
 
 import (
+	"encoding"
+	"log"
 	"testing"
 	"time"
 
@@ -168,4 +170,37 @@ func TestUnMarshal(t *testing.T) {
 	}
 
 	require.Equal(t, expectedConfig, config)
+}
+
+type customDuration struct {
+	value time.Duration
+}
+
+// check that it implements encoding.TextUnmarshaler
+var _ encoding.TextUnmarshaler = (*customDuration)(nil)
+
+func (c *customDuration) UnmarshalText(text []byte) error {
+	d, err := time.ParseDuration(string(text))
+	if err != nil {
+		return err
+	}
+	log.Println(d)
+	c.value = d
+	return nil
+}
+
+func TestUnMarshal_fieldWithTextUnmarshaler(t *testing.T) {
+	type config struct {
+		Interval customDuration `env:"INTERVAL" default:"15m"`
+	}
+
+	expectedConfig := config{
+		Interval: customDuration{value: 15 * time.Minute},
+	}
+	cfg := config{}
+
+	dotenv := dotenv.New()
+	err := dotenv.Unmarshal(&cfg)
+	require.NoError(t, err)
+	require.Equal(t, expectedConfig, cfg)
 }

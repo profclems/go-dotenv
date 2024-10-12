@@ -6,7 +6,7 @@ import (
 	"github.com/profclems/go-dotenv"
 )
 
-func BenchmarkDotenv_LoadConfig(b *testing.B) {
+func BenchmarkDotenv_Load(b *testing.B) {
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
 		config := dotenv.New()
@@ -41,7 +41,7 @@ func BenchmarkDotenv_Init_GetSet(b *testing.B) {
 	})
 }
 
-func BenchmarkDotenv_LoadConfig_GetSet(b *testing.B) {
+func BenchmarkDotenv_Load_GetSet(b *testing.B) {
 	dotenv.SetConfigFile("fixtures/large.env")
 	err := dotenv.Load()
 	if err != nil {

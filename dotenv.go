@@ -2,6 +2,7 @@ package dotenv
 
 import (
 	"bytes"
+	"encoding"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -175,12 +176,22 @@ func (e *DotEnv) SetConfigFile(configFile string) {
 }
 
 // UnMarshal unmarshals the config file into a struct.
+// Recognizes the following struct tags:
+//   - env:"KEY" to specify the key name to look up in the config file
+//   - default:"value" to specify a default value if the key is not found
 func UnMarshal(v any) error {
 	return d.Unmarshal(v)
 }
 
-func (e *DotEnv) Unmarshal(v any) error {
-	val := reflect.ValueOf(v).Elem()
+func (e *DotEnv) Unmarshal(v any) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("%v", r)
+		}
+	}()
+
+	vPtr := reflect.ValueOf(v)
+	val := vPtr.Elem()
 
 	if vk := val.Kind(); vk != reflect.Struct {
 		return fmt.Errorf("expected a struct, got %T", vk)
@@ -191,6 +202,29 @@ func (e *DotEnv) Unmarshal(v any) error {
 		field := typ.Field(i)
 		fieldVal := val.Field(i)
 
+		getConfigVal := func() string {
+			tag := field.Tag.Get("env")
+			if tag != "" {
+				if envVal := e.GetString(tag); envVal != "" {
+					return envVal
+				}
+			}
+			// set default value
+			if def := field.Tag.Get("default"); def != "" {
+				return def
+			}
+			return ""
+		}
+
+		if fieldVal.CanAddr() {
+			if m, ok := fieldVal.Addr().Interface().(encoding.TextUnmarshaler); ok {
+				if err := m.UnmarshalText([]byte(getConfigVal())); err != nil {
+					return err
+				}
+				continue
+			}
+		}
+
 		if field.Type.Kind() == reflect.Struct {
 			if err := e.Unmarshal(fieldVal.Addr().Interface()); err != nil {
 				return err
@@ -198,21 +232,8 @@ func (e *DotEnv) Unmarshal(v any) error {
 			continue
 		}
 
-		tag := field.Tag.Get("env")
-		var configVal string
-		if tag != "" {
-			if envVal := e.GetString(tag); envVal != "" {
-				configVal = envVal
-			}
-		}
-		if configVal == "" {
-			// set default value
-			if def := field.Tag.Get("default"); def != "" {
-				configVal = def
-			} else {
-				continue
-			}
-		}
+		configVal := getConfigVal()
+
 		// set the value based on the field type
 		switch field.Type {
 		case reflect.TypeOf(time.Time{}):
@@ -241,7 +262,7 @@ func (e *DotEnv) Unmarshal(v any) error {
 		}
 	}
 
-	return nil
+	return err
 }
 
 // Get can retrieve any value given the key to use.
