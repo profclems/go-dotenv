@@ -62,7 +62,24 @@ type DotEnv struct {
 }
 
 // global DotEnv instance
-var d *DotEnv
+var (
+	_globalMu sync.RWMutex
+	_global   = New()
+)
+
+// ReplaceDefault replaces the default DotEnv instance with a new one
+// and returns a function to restore the previous instance.
+// This is useful for customizing the default DotEnv instance.
+// It's safe for concurrent use.
+func ReplaceDefault(env *DotEnv) func() {
+	_globalMu.Lock()
+	prev := _global
+	_global = env
+	_globalMu.Unlock()
+	return func() {
+		ReplaceDefault(prev)
+	}
+}
 
 // New returns an initialized DotEnv instance.
 // This does not load the config file. You call Load() to do that.
@@ -80,10 +97,7 @@ var utf8BOM = []byte("\uFEFF")
 // This loads the .env file from the current directory by default,
 // use SetConfigFile to set a custom path before calling this.
 func Load() error {
-	if d == nil {
-		d = New()
-	}
-	return d.Load()
+	return GetDotEnv().Load()
 }
 
 func (e *DotEnv) Load() error {
@@ -112,10 +126,7 @@ func (e *DotEnv) Load() error {
 // This loads the .env file from the current directory by default,
 // use SetConfigFile to set a custom path before calling this.
 func LoadWithDecoder(decoder Decoder) error {
-	if d == nil {
-		d = New()
-	}
-	return d.LoadWithDecoder(decoder)
+	return GetDotEnv().LoadWithDecoder(decoder)
 }
 
 func (e *DotEnv) LoadWithDecoder(decoder Decoder) error {
@@ -123,22 +134,31 @@ func (e *DotEnv) LoadWithDecoder(decoder Decoder) error {
 	return e.Load()
 }
 
-// GetDotEnv returns the global DotEnv instance.
+// GetDotEnv returns the global DotEnv instance which can reconfigured with ReplaceDefault.
+// It's safe for concurrent use.
 func GetDotEnv() *DotEnv {
+	_globalMu.Lock()
+	d := _global
+	_globalMu.Unlock()
+
 	return d
 }
 
 // SetPrefix defines a prefix that ENVIRONMENT variables will use.
 // E.g. if your prefix is "pro", the env registry will look for env
 // variables that start with "PRO_".
-func SetPrefix(prefix string) { d.SetPrefix(prefix) }
+func SetPrefix(prefix string) {
+	_globalMu.Lock()
+	_global.SetPrefix(prefix)
+	_globalMu.Unlock()
+}
 
 func (e *DotEnv) SetPrefix(prefix string) {
 	e.prefix = strings.ToUpper(prefix) + "_"
 }
 
 // GetPrefix returns the prefix that ENVIRONMENT variables will use which is set with SetPrefix.
-func GetPrefix() string { return d.GetPrefix() }
+func GetPrefix() string { return GetDotEnv().GetPrefix() }
 
 func (e *DotEnv) GetPrefix() string {
 	return strings.TrimSuffix(e.prefix, "_")
@@ -156,7 +176,7 @@ func (e *DotEnv) addPrefix(key string) string {
 // AllowEmptyEnv tells Dotenv to consider set, but empty environment variables
 // as valid values instead of falling back to config value.
 // This is set to true by default.
-func AllowEmptyEnv(allowEmptyEnvVars bool) { d.AllowEmptyEnvVars(allowEmptyEnvVars) }
+func AllowEmptyEnv(allowEmptyEnvVars bool) { GetDotEnv().AllowEmptyEnvVars(allowEmptyEnvVars) }
 
 func (e *DotEnv) AllowEmptyEnvVars(allowEmptyEnvVars bool) {
 	e.allowEmptyEnvVars = allowEmptyEnvVars
@@ -165,10 +185,10 @@ func (e *DotEnv) AllowEmptyEnvVars(allowEmptyEnvVars bool) {
 // SetConfigFile explicitly defines the path, name and extension of the config file.
 // Dotenv will use this and not check .env from the current directory.
 func SetConfigFile(configFile string) {
-	if d == nil {
-		d = New()
+	if _global == nil {
+		_global = New()
 	}
-	d.SetConfigFile(configFile)
+	_global.SetConfigFile(configFile)
 }
 
 func (e *DotEnv) SetConfigFile(configFile string) {
@@ -180,7 +200,7 @@ func (e *DotEnv) SetConfigFile(configFile string) {
 //   - env:"KEY" to specify the key name to look up in the config file
 //   - default:"value" to specify a default value if the key is not found
 func UnMarshal(v any) error {
-	return d.Unmarshal(v)
+	return GetDotEnv().Unmarshal(v)
 }
 
 func (e *DotEnv) Unmarshal(v any) (err error) {
@@ -271,7 +291,7 @@ func (e *DotEnv) Unmarshal(v any) (err error) {
 // configOverride cache, env, key/value store, config file
 //
 // Get returns an interface. For a specific value use one of the Get___ methods e.g. GetBool(key) for a boolean value
-func Get(key string) any { return d.Get(key) }
+func Get(key string) any { return GetDotEnv().Get(key) }
 
 func (e *DotEnv) Get(key string) any {
 	val, _ := e.LookUp(key)
@@ -279,84 +299,84 @@ func (e *DotEnv) Get(key string) any {
 }
 
 // GetString returns the value associated with the key as a string.
-func GetString(key string) string { return d.GetString(key) }
+func GetString(key string) string { return GetDotEnv().GetString(key) }
 
 func (e *DotEnv) GetString(key string) string {
 	return cast.ToString(e.Get(key))
 }
 
 // GetBool returns the value associated with the key as a boolean.
-func GetBool(key string) bool { return d.GetBool(key) }
+func GetBool(key string) bool { return GetDotEnv().GetBool(key) }
 
 func (e *DotEnv) GetBool(key string) bool {
 	return cast.ToBool(e.Get(key))
 }
 
 // GetInt returns the value associated with the key as an integer.
-func GetInt(key string) int { return d.GetInt(key) }
+func GetInt(key string) int { return GetDotEnv().GetInt(key) }
 
 func (e *DotEnv) GetInt(key string) int {
 	return cast.ToInt(e.Get(key))
 }
 
 // GetInt32 returns the value associated with the key as an integer.
-func GetInt32(key string) int32 { return d.GetInt32(key) }
+func GetInt32(key string) int32 { return GetDotEnv().GetInt32(key) }
 
 func (e *DotEnv) GetInt32(key string) int32 {
 	return cast.ToInt32(e.Get(key))
 }
 
 // GetInt64 returns the value associated with the key as an integer.
-func GetInt64(key string) int64 { return d.GetInt64(key) }
+func GetInt64(key string) int64 { return GetDotEnv().GetInt64(key) }
 
 func (e *DotEnv) GetInt64(key string) int64 {
 	return cast.ToInt64(e.Get(key))
 }
 
 // GetUint returns the value associated with the key as an unsigned integer.
-func GetUint(key string) uint { return d.GetUint(key) }
+func GetUint(key string) uint { return GetDotEnv().GetUint(key) }
 
 func (e *DotEnv) GetUint(key string) uint {
 	return cast.ToUint(e.Get(key))
 }
 
 // GetUint32 returns the value associated with the key as an unsigned integer.
-func GetUint32(key string) uint32 { return d.GetUint32(key) }
+func GetUint32(key string) uint32 { return GetDotEnv().GetUint32(key) }
 
 func (e *DotEnv) GetUint32(key string) uint32 {
 	return cast.ToUint32(e.Get(key))
 }
 
 // GetUint64 returns the value associated with the key as an unsigned integer.
-func GetUint64(key string) uint64 { return d.GetUint64(key) }
+func GetUint64(key string) uint64 { return GetDotEnv().GetUint64(key) }
 
 func (e *DotEnv) GetUint64(key string) uint64 {
 	return cast.ToUint64(e.Get(key))
 }
 
 // GetFloat64 returns the value associated with the key as a float64.
-func GetFloat64(key string) float64 { return d.GetFloat64(key) }
+func GetFloat64(key string) float64 { return GetDotEnv().GetFloat64(key) }
 
 func (e *DotEnv) GetFloat64(key string) float64 {
 	return cast.ToFloat64(e.Get(key))
 }
 
 // GetTime returns the value associated with the key as time.
-func GetTime(key string) time.Time { return d.GetTime(key) }
+func GetTime(key string) time.Time { return GetDotEnv().GetTime(key) }
 
 func (e *DotEnv) GetTime(key string) time.Time {
 	return cast.ToTime(e.Get(key))
 }
 
 // GetDuration returns the value associated with the key as a duration.
-func GetDuration(key string) time.Duration { return d.GetDuration(key) }
+func GetDuration(key string) time.Duration { return GetDotEnv().GetDuration(key) }
 
 func (e *DotEnv) GetDuration(key string) time.Duration {
 	return cast.ToDuration(e.Get(key))
 }
 
 // GetIntSlice returns the value associated with the key as a slice of int values.
-func GetIntSlice(key string) []int { return d.GetIntSlice(key) }
+func GetIntSlice(key string) []int { return GetDotEnv().GetIntSlice(key) }
 
 func (e *DotEnv) GetIntSlice(key string) []int {
 	return cast.ToIntSlice(toSlice(e.GetString(key)))
@@ -368,7 +388,7 @@ func toSlice(value string) []string {
 }
 
 // GetStringSlice returns the value associated with the key as a slice of strings.
-func GetStringSlice(key string) []string { return d.GetStringSlice(key) }
+func GetStringSlice(key string) []string { return GetDotEnv().GetStringSlice(key) }
 
 func (e *DotEnv) GetStringSlice(key string) []string {
 	return cast.ToStringSlice(toSlice(e.GetString(key)))
@@ -376,7 +396,7 @@ func (e *DotEnv) GetStringSlice(key string) []string {
 
 // GetSizeInBytes returns the size of the value associated with the given key
 // in bytes.
-func GetSizeInBytes(key string) uint { return d.GetSizeInBytes(key) }
+func GetSizeInBytes(key string) uint { return GetDotEnv().GetSizeInBytes(key) }
 
 func (e *DotEnv) GetSizeInBytes(key string) uint {
 	sizeStr := cast.ToString(e.Get(key))
@@ -385,7 +405,7 @@ func (e *DotEnv) GetSizeInBytes(key string) uint {
 
 // IsSet checks to see if the key has been set in any of the env var, config cache or config file.
 // IsSet is case-insensitive for a key.
-func IsSet(key string) bool { return d.IsSet(key) }
+func IsSet(key string) bool { return GetDotEnv().IsSet(key) }
 
 func (e *DotEnv) IsSet(key string) bool {
 	_, set := e.LookUp(key)
@@ -395,7 +415,7 @@ func (e *DotEnv) IsSet(key string) bool {
 // LookUp retrieves the value of the configuration named by the key.
 // If the variable is set (which may be empty) is returned and the boolean is true.
 // Otherwise the returned value will be empty and the boolean will be false.
-func LookUp(key string) (any, bool) { return d.LookUp(key) }
+func LookUp(key string) (any, bool) { return GetDotEnv().LookUp(key) }
 
 func (e *DotEnv) LookUp(key string) (any, bool) {
 	if key != "" {
@@ -420,7 +440,7 @@ func (e *DotEnv) LookUp(key string) (any, bool) {
 // Set sets or update env variable
 // This will be used instead of following the normal precedence
 // when getting the value
-func Set(key string, value any) { d.Set(key, value) }
+func Set(key string, value any) { GetDotEnv().Set(key, value) }
 
 func (e *DotEnv) Set(key string, value any) {
 	key = e.addPrefix(key)
@@ -432,7 +452,7 @@ func (e *DotEnv) Set(key string, value any) {
 }
 
 // Save writes the current configuration to a file.
-func Save() error { return d.Save() }
+func Save() error { return GetDotEnv().Save() }
 
 func (e *DotEnv) Save() error {
 	cfgData := ""
@@ -452,7 +472,7 @@ func (e *DotEnv) Save() error {
 //
 //	dotenv.Set(key, value)
 //	dotenv.Save()
-func Write(key string, value any) error { return d.Write(key, value) }
+func Write(key string, value any) error { return GetDotEnv().Write(key, value) }
 
 func (e *DotEnv) Write(key string, value any) error {
 	e.Set(key, value)
