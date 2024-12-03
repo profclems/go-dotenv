@@ -201,11 +201,11 @@ func (e *DotEnv) SetConfigFile(configFile string) {
 	e.configFile = configFile
 }
 
-// UnMarshal unmarshals the config file into a struct.
+// Unmarshal unmarshals the config file into a struct.
 // Recognizes the following struct tags:
 //   - env:"KEY" to specify the key name to look up in the config file
 //   - default:"value" to specify a default value if the key is not found
-func UnMarshal(v any) error {
+func Unmarshal(v any) error {
 	return GetDotEnv().Unmarshal(v)
 }
 
