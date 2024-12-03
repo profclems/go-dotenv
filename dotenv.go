@@ -91,46 +91,55 @@ func New() *DotEnv {
 
 var utf8BOM = []byte("\uFEFF")
 
-// Load finds and read the config file.
-// returns os.ErrNotExist if config file does not exist.
-// This loads the .env file from the current directory by default,
-// use SetConfigFile to set a custom path before calling this.
-func Load() error {
-	return GetDotEnv().Load()
+// Load reads the config file(s) and loads the configuration
+// in the order of the files provided.
+// It returns os.ErrNotExist if config file does not exist.
+// If no config file is specified, it loads the .env file from the current directory by default.
+func Load(files ...string) error {
+	return GetDotEnv().Load(files...)
 }
 
-func (e *DotEnv) Load() error {
-	data, err := os.ReadFile(e.configFile)
-	if err != nil {
-		return err
+func (e *DotEnv) Load(files ...string) error {
+	config := make(map[string]any)
+	if len(files) == 0 {
+		files = []string{e.configFile}
 	}
 
-	data = bytes.TrimPrefix(data, utf8BOM)
-	config := make(map[string]any)
+	for _, file := range files {
+		data, err := os.ReadFile(file)
+		if err != nil {
+			return err
+		}
 
-	err = e.decoder.Decode(data, config)
-	if err != nil {
-		return err
+		data = bytes.TrimPrefix(data, utf8BOM)
+
+		err = e.decoder.Decode(data, config)
+		if err != nil {
+			return err
+		}
 	}
 
 	e.mu.Lock()
-	e.cachedConfig = config
+	if e.cachedConfig == nil {
+		e.cachedConfig = make(map[string]any)
+	}
+
+	for key, val := range config {
+		e.cachedConfig[key] = val
+	}
 	e.mu.Unlock()
 
 	return nil
 }
 
-// LoadWithDecoder finds and read the config file using the provided decoder.
-// returns os.ErrNotExist if config file does not exist.
-// This loads the .env file from the current directory by default,
-// use SetConfigFile to set a custom path before calling this.
-func LoadWithDecoder(decoder Decoder) error {
-	return GetDotEnv().LoadWithDecoder(decoder)
+// LoadWithDecoder is like Load but uses the provided decoder to decode the config file(s).
+func LoadWithDecoder(decoder Decoder, files ...string) error {
+	return GetDotEnv().LoadWithDecoder(decoder, files...)
 }
 
-func (e *DotEnv) LoadWithDecoder(decoder Decoder) error {
+func (e *DotEnv) LoadWithDecoder(decoder Decoder, files ...string) error {
 	e.decoder = decoder
-	return e.Load()
+	return e.Load(files...)
 }
 
 // GetDotEnv returns the global DotEnv instance which can reconfigured with ReplaceDefault.
@@ -179,6 +188,8 @@ func (e *DotEnv) AllowEmptyEnvVars(allowEmptyEnvVars bool) {
 
 // SetConfigFile explicitly defines the path, name and extension of the config file.
 // Dotenv will use this and not check .env from the current directory.
+// You need to call Load() to read the config file.
+// Or you could directly load the config file by calling Load("path/to/config/file").
 func SetConfigFile(configFile string) {
 	if _global == nil {
 		_global = New()

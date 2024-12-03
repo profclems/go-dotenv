@@ -3,6 +3,7 @@ package dotenv_test
 import (
 	"encoding"
 	"log"
+	"os"
 	"testing"
 	"time"
 
@@ -203,4 +204,21 @@ func TestUnMarshal_fieldWithTextUnmarshaler(t *testing.T) {
 	err := dotenv.Unmarshal(&cfg)
 	require.NoError(t, err)
 	require.Equal(t, expectedConfig, cfg)
+}
+
+func TestGet_NoConfigFile(t *testing.T) {
+	env := dotenv.New()
+	val := env.GetString("SOME_KEY")
+	assert.Equal(t, "", val)
+
+	// set os env
+	err := os.Setenv("SOME_KEY", "some value")
+	require.NoError(t, err)
+
+	val = env.GetString("SOME_KEY")
+	assert.Equal(t, "some value", val)
+
+	// use global instance
+	val = dotenv.GetString("SOME_KEY")
+	assert.Equal(t, "some value", val)
 }
